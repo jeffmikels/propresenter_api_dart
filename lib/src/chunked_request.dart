@@ -4,7 +4,7 @@ import 'package:http/http.dart' as http;
 
 /// This class will allow you to make an HTTP request, and it will
 /// reply with a stream of data objects
-class ChunkedJsonClient {
+class DeprecatedChunkedJsonClient {
   static Future<Stream?> request(
     dynamic url, {
     Map<String, dynamic>? params,

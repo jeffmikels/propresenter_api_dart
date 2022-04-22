@@ -1,14 +1,15 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:http/http.dart' as http;
-
 import 'helpers.dart';
 import 'event_emitter.dart';
 import 'propresenter_api_base.dart';
 
 import 'api_v1_generated.dart';
 
+/// this class stores the string constants representing
+/// ProPresenter endpoints that can be subscribed to
+/// using the `/status/updates` endpoint
 abstract class ProApiSubbable {
   static const captureStatus = 'capture/status';
   static const layersStatus = 'status/layers';
@@ -62,19 +63,22 @@ abstract class ProApiSubbable {
 
     ProApiSubbable.allTimers,
     ProApiSubbable.currentTimers,
+
+    /// reports an update every second
     ProApiSubbable.systemTime,
 
+    /// reports an update every second even if no change
     ProApiSubbable.videoCountdown,
   ];
-
-  /// `audio/playlist/{id}/updates`
-  static String audioPlaylistUpdates(String playlistId) => 'audio/playlist/$playlistId/updates';
 
   /// - `library/{id}`
   static String libraryUpdates(String libraryId) => 'library/$libraryId';
 
   /// - `media/playlist/{id}/updates`
   static String mediaPlaylistUpdates(String playlistId) => 'media/playlist/$playlistId/updates';
+
+  /// `audio/playlist/{id}/updates`
+  static String audioPlaylistUpdates(String playlistId) => 'audio/playlist/$playlistId/updates';
 
   /// - `transport/{layer}/time`
   static String transportTime(String layerId) => 'transport/$layerId/time';
@@ -86,45 +90,68 @@ abstract class ProApiSubbable {
 /// This class gives full access to the completely new ProPresenter API available in 7.9+
 /// This API uses basic HTTP clients. For normal commands, a standard request/response method
 /// is employed, but the API also allows for "subscriptions" to certain events which will result
-/// in a persistent-ly open HTTP client that receives streamed JSON data in `chunks`.
+/// in a persistent HTTP connection that receives streamed JSON data in `chunks`.
+///
+/// The generated code in [ProApiGeneratedWrapper] wraps those commands and returns responses of the
+/// correct type either `Future<Map<String, dynamic>>` or `Future<Uint8List>` when not using the
+/// "subscription" methods or streamed responses when using the "subscription" methods.
+///
+/// This class further wraps those functions to make using those methods more convenient. In particular,
+/// this class allows easy subscriptions, will maintain an internal `state` object to track the
+/// current state of the ProPresenter instance, and will reduce complexity when calling endpoints
+/// that accept large blocks of data.
 class ProApiClient with EventEmitter {
-  bool subscribed = false;
-  ProApiWrapper api;
+  final ProApiGeneratedWrapper api;
   ProSettings settings;
   ProState state = ProState();
-  ProApiClient(this.settings) : api = ProApiWrapper(settings.host, settings.port);
+
+  Set<String> statusSubscriptions = {};
+  Map<String, StreamSubscription> updateListeners = {};
+
+  /// Creates new [ProApiClient] instance.
+  ProApiClient(this.settings)
+      : api = ProApiGeneratedWrapper(settings.host, settings.port),
+        assert(settings.version.index >= ProVersion.seven9.index);
 
   /// will subscribe to chunked updates using the /status endpoint.
   ///
   /// To make things easier, the available and working endpoints are stored
   /// as static constants in the [ProApiSubbable] class.
   ///
-  /// Note: these endpoints do not work in 7.9 despite the claims in the documentation:
+  /// Note: in 7.9, these endpoints do not work in this call despite the claims in the documentation:
   /// - `playlist/current`
   /// - `announcement/active/timeline`
   ///
-  /// Note also: Other endpoints are supported but they require id values.
+  /// Note also: Other endpoints are supported but they require id values. See the
+  /// static class methods on [ProApiSubbable] for endpoint generators.
   Future<bool> subscribeMulti(List<String> subs) async {
     emit('subscribing', subs);
 
     var s = await api.statusUpdatesGet(subs);
     if (s == null) return false;
-    s.listen((obj) {
-      var data = (obj as Map<String, dynamic>);
 
+    var streamListener = s.listen((obj) {
       // emit the raw data identified by the endpoint/url
-      var url = data['url'] as String;
-      emit(url, data);
+      var url = obj['url'] as String;
+      emit(url, obj);
 
       // parse into the ProState
-      state.handleData(data);
-    }).onDone(() {
-      print('subscription ended');
-      emit('unsubscribed', 'subscribeAll');
-      subscribed = false;
+      state.handleData(obj);
     });
-    emit('subscribed', 'subscribeAll');
-    subscribed = true;
+
+    streamListener.onDone(() {
+      for (var endpoint in subs) {
+        emit('unsubscribed', endpoint);
+      }
+      updateListeners.removeWhere((key, value) => value == streamListener);
+    });
+
+    for (var endpoint in subs) {
+      // cancel all previous streamListeners on this endpoint
+      await updateListeners[endpoint]?.cancel();
+      updateListeners[endpoint] = streamListener;
+      emit('subscribed', endpoint);
+    }
     return true;
   }
 
@@ -135,7 +162,10 @@ class ProApiClient with EventEmitter {
   /// - `media/playlist/{id}/updates`
   /// - `transport/{layer}/time`
   /// - `transport/{layer}/current`
-  Future<bool> subscribeAll() async {
-    return subscribeMulti(ProApiSubbable.all);
+  Future<bool> subscribeAll({withoutSysTime = false, withoutVideoCountdown = false}) async {
+    var subs = [...ProApiSubbable.all];
+    if (withoutSysTime) subs.remove(ProApiSubbable.systemTime);
+    if (withoutVideoCountdown) subs.remove(ProApiSubbable.videoCountdown);
+    return subscribeMulti(subs);
   }
 }

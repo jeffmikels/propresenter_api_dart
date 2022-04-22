@@ -39,5 +39,12 @@ void main() async {
 
   var pro = ProApiClient(ProSettings(version: ProVersion.seven9, host: 'localhost', port: 60157));
   pro.on('all', (e) => debug(e));
-  pro.subscribeAll();
+  // pro.subscribeAll(withoutSysTime: true, withoutVideoCountdown: true);
+  pro.subscribeMulti([
+    ProApiSubbable.slideStatus,
+    ProApiSubbable.currentSlideIndex,
+  ]);
+
+  var s = await pro.api.presentationGetActiveStream();
+  s?.listen((e) => debug(e));
 }

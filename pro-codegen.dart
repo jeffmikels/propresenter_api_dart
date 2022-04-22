@@ -527,13 +527,16 @@ content-type: `${response.contentType}`
 
     // return values can be Uint8List for image data
     // or Map<String, dynamic> for application/json data
+    // or bool for expected 204 responses
     // or Stream for chunked data (handled later)
     var funcRetVal = verb.responses.isNotEmpty && verb.responses.first.contentType == 'application/json'
         ? 'Map<String, dynamic>'
-        : 'Uint8List';
-    var funcRetLine = verb.responses.isNotEmpty && verb.responses.first.contentType == 'application/json'
-        ? 'return json.decode(r.body);'
-        : 'return r.bodyBytes;';
+        : verb.responses.first.code == 204
+            ? 'bool'
+            : 'Uint8List';
+    var httpAccept = verb.responses.isNotEmpty && verb.responses.first.contentType.contains('image')
+        ? 'image/jpeg'
+        : 'application/json';
 
     List<String> queryPairs = [];
     queryArgs.forEach((key, value) => queryPairs.add('\'$key\' : $value.toString()'));
@@ -549,7 +552,7 @@ content-type: `${response.contentType}`
 Future<$funcRetVal> $funcName($funcArgs) async {
   String url = '$dartPathSpec';
   $queryLine
-  return await call('${verb.method}', url$queryArg);
+  return await call('${verb.method}', url$queryArg, httpAccept: '$httpAccept');
 }
 ''');
       } else {
@@ -558,7 +561,7 @@ Future<$funcRetVal> $funcName($funcArgs) async {
 Future<$funcRetVal> $funcName($funcArgs) async {
   String url = '$dartPathSpec';
   $queryLine
-  return await call('${verb.method}', url$queryArg);
+  return await call('${verb.method}', url$queryArg, httpAccept: '$httpAccept');
 }
 ''');
       }
@@ -573,7 +576,7 @@ Future<$funcRetVal> $funcName($funcArgs) async {
         // a `post` and returns chunked data
         // and it does NOT require the query argument
         funcs.add('''
-Future<Stream?> $funcName($funcArgs) async {
+Future<Stream<Map<String, dynamic>>?> $funcName($funcArgs) async {
   String url = '$dartPathSpec';
   return callStream('get', url, data: $postArgVar);
 }
@@ -582,7 +585,7 @@ Future<Stream?> $funcName($funcArgs) async {
         // version with no posted data
         funcs.add('''
 /// Streaming version of [$funcName]
-Future<Stream?> ${funcName}Stream($funcArgs) async {
+Future<Stream<Map<String, dynamic>>?> ${funcName}Stream($funcArgs) async {
   String url = '$dartPathSpec';
   $queryLine
   return callStream('get', url, params: {$queryArg'chunked': 'true'});
@@ -627,11 +630,11 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 
 
-class ProApiWrapper {
+class ProApiGeneratedWrapper {
   String host = 'localhost';
   int port = 50001;
 
-  ProApiWrapper(this.host, this.port);
+  ProApiGeneratedWrapper(this.host, this.port);
 
   Uri _makeUri(String path, {Map<String, dynamic>? params}) {
     return Uri.http('\$host:\$port', path, params);
@@ -643,9 +646,10 @@ class ProApiWrapper {
   ///
   /// [path] should be a *relative* path according to the api.
   /// e.g. `/v1/status/updates`
-  Future call(String verb, String path, {Map<String, dynamic>? params, Object? data}) async {
+  Future call(String verb, String path, {Map<String, dynamic>? params, Object? data, String? httpAccept}) async {
+    httpAccept ??= 'application/json';
     var uri = _makeUri(path, params: params);
-    var headers = {'content-type': 'application/json'};
+    var headers = {'content-type': 'application/json', 'accept': httpAccept};
     late http.Response r;
     switch (verb.toLowerCase()) {
       case 'get':
@@ -665,6 +669,7 @@ class ProApiWrapper {
         break;
     }
     if (r.statusCode > 199 && r.statusCode < 300) {
+      if (r.statusCode == 204) return true;
       if (r.headers['content-type'] == 'application/json') {
         return json.decode(r.body);
       } else {
@@ -675,10 +680,12 @@ class ProApiWrapper {
     }
   }
 
-  Future<Stream?> callStream(String verb, String path, {Map<String, dynamic>? params, Object? data}) async {
+  /// [callStream] acts exactly like [call], but it responds with a stream of Json Objects
+  Future<Stream<Map<String, dynamic>>?> callStream(String verb, String path, {Map<String, dynamic>? params, Object? data}) async {
     var uri = _makeUri(path, params: params);
 
     // setup a manual request to manage streaming
+    var client = http.Client();
     var verb = data == null ? 'GET' : 'POST';
     var r = http.Request(verb, uri);
     r.headers['content-type'] = 'application/json';
@@ -687,13 +694,13 @@ class ProApiWrapper {
     } else {
       r.body = json.encode(data);
     }
-    var res = await r.send();
+    var res = await client.send(r);
 
     // if successful, create a stream of Json Objects
     if (res.statusCode > 199 && res.statusCode < 300) {
       var sc = StreamController<Map<String, dynamic>>();
       var accum = '';
-      res.stream.listen((e) {
+      var listener = res.stream.listen((e) {
         accum += utf8.decode(e);
         var chunks = accum.split('\\r\\n\\r\\n');
         // if the received data ended with \\r\\n\\r\\n, the last chunk will be empty
@@ -702,15 +709,24 @@ class ProApiWrapper {
         for (var chunk in chunks) {
           try {
             var decoded = json.decode(chunk);
-            print(decoded);
+            // print(decoded);
             sc.add({...decoded});
           } catch (e) {
-            print('JSON ERROR: \$e');
+            // print('JSON ERROR: \$e');
           }
         }
-      }).onDone(() {
-        sc.close();
       });
+
+      // cleanup stream
+      listener.onDone(() {
+        sc.isClosed ? null : sc.close();
+      });
+
+      // close http connection when the listener to the stream cancels
+      sc.onCancel = () {
+        listener.cancel();
+        client.close();
+      };
       return sc.stream;
     } else {
       // we had an error of some kind, but we used a streaming request
