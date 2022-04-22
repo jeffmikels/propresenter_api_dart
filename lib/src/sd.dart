@@ -18,7 +18,7 @@ import './helpers.dart';
 class ProSDClient extends ProConnectedComponent {
   ProSettings settings;
 
-  String get ip => settings.ip;
+  String get ip => settings.host;
   int get port => settings.port;
   ProVersion get version => settings.version;
   String? get password => settings.sdPass;
@@ -282,7 +282,7 @@ class ProSDSlide {
 
   String notes = '';
   String text = '';
-  String get baseUrl => 'http://${settings.ip}:${settings.port}';
+  String get baseUrl => 'http://${settings.host}:${settings.port}';
   String get sdImageUrl => '$baseUrl/stage/image/$uid';
   String get sdImageBasename => '$uid.jpg';
 

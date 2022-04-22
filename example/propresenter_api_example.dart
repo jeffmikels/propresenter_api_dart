@@ -24,16 +24,20 @@ void main() async {
   //   print(encoder.convert(event));
   //   print('--------------------------------------------');
   // });
-  PP.config('localhost', 60157);
+  // PP.config('localhost', 60157);
 
-  var r = await PP.presentationGetActive();
-  var puuid = r['presentation']['id']['uuid'];
-  var u = await PP.presentationThumbnailGet(puuid, 0, quality: 600);
-  File('tmp.jpg').writeAsBytesSync(u);
+  // var r = await PP.presentationGetActive();
+  // var puuid = r['presentation']['id']['uuid'];
+  // var u = await PP.presentationThumbnailGet(puuid, 0, quality: 600);
+  // File('tmp.jpg').writeAsBytesSync(u);
 
-  var s = await PP.slideStatusGetStream();
-  if (s != null) {
-    var encoder = JsonEncoder.withIndent('  ');
-    s.listen((e) => print(encoder.convert(e)));
-  }
+  // var s = await PP.slideStatusGetStream();
+  // if (s != null) {
+  //   var encoder = JsonEncoder.withIndent('  ');
+  //   s.listen((e) => print(encoder.convert(e)));
+  // }
+
+  var pro = ProApiClient(ProSettings(version: ProVersion.seven9, host: 'localhost', port: 60157));
+  pro.on('all', (e) => debug(e));
+  pro.subscribeAll();
 }

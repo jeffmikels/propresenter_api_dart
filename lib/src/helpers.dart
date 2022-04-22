@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 /// simplified implementation of the Color class from Flutter's dart:ui package
 /// We use it to compute the luminance of an image
 class Color {
@@ -105,3 +107,13 @@ int timestring2secs(String timestring) {
 //   var minute = tod.minute.toString().padLeft(2, '0');
 //   return '$hour:$minute $ampm';
 // }
+
+void debug(Object obj) {
+  var converter = JsonEncoder.withIndent('  ').convert;
+  if (obj is String) {
+    print('DEBUG: $obj');
+  } else {
+    print('DEBUG:');
+    print(converter(obj));
+  }
+}

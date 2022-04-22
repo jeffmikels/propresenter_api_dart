@@ -42,17 +42,32 @@ class ChunkedJsonClient {
         // if the received data ended with \r\n\r\n, the last chunk will be empty
         // if it didn't end with \r\n\r\n, then we want to leave it in the accumulator
         accum = chunks.removeLast();
-
         for (var chunk in chunks) {
           try {
-            sc.add({...json.decode(chunk)});
+            var decoded = json.decode(chunk);
+            print(decoded);
+            sc.add({...decoded});
           } catch (e) {
             print('JSON ERROR: $e');
           }
         }
+      }).onDone(() {
+        sc.close();
       });
       return sc.stream;
+    } else {
+      var err = await _awaitBytes(res.stream);
+      throw http.ClientException(err);
     }
-    return null;
+    // return null;
   }
+}
+
+Future<String> _awaitBytes(http.ByteStream s) {
+  var accum = <int>[];
+  var completer = Completer<String>();
+  s.listen((bytes) => accum.addAll(bytes)).onDone(() {
+    completer.complete(utf8.decode(accum));
+  });
+  return completer.future;
 }

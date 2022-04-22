@@ -38,7 +38,7 @@ enum ProVersion { six, seven, seven8, seven9 }
 /// over one or more of the API methods.
 class ProSettings {
   ProVersion version = ProVersion.seven9;
-  String ip;
+  String host;
   int port;
 
   String? remotePass;
@@ -48,7 +48,7 @@ class ProSettings {
   bool get hasNetworkLink => version.index >= ProVersion.seven8.index;
   bool get hasAPI => version.index >= ProVersion.seven9.index;
 
-  ProSettings({this.version = ProVersion.seven9, required this.ip, required this.port, this.remotePass, this.sdPass});
+  ProSettings({this.version = ProVersion.seven9, required this.host, required this.port, this.remotePass, this.sdPass});
 }
 
 /// contains all the data exposed by the various API methods
@@ -150,6 +150,9 @@ class ProState with EventEmitter {
     emit(s);
     emit('update');
   }
+
+  /// will process the data from a ProPresenter response
+  void handleData(Map<String, dynamic> data) {}
 }
 
 // represents the data reported from an mDNS query
@@ -328,7 +331,7 @@ class ProLegacyClient extends ProConnectedComponent {
   @override
   bool get connected => sd?.connected == true && remote?.connected == true;
 
-  String get imageBaseUrl => 'http://${settings.ip}:${settings.port}';
+  String get imageBaseUrl => 'http://${settings.host}:${settings.port}';
 
   ProLegacyClient(this.settings);
 

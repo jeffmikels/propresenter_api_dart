@@ -234,6 +234,7 @@ class EndpointVerb {
   String id = '';
   String method = '';
   String summary = '';
+  String description = '';
   List<String> tags = [];
   List<EndpointParam> params = [];
   List<EndpointResponse> responses = [];
@@ -241,7 +242,8 @@ class EndpointVerb {
 
   EndpointVerb.fromMap(this.method, Map<String, dynamic> data) {
     data = deRef(data);
-    summary = data['summary']!;
+    summary = data['summary'] ?? '';
+    description = data['description'] ?? '';
     id = data['operationId']!;
     tags.addAll((data['tags'] as List).toStrings());
     for (var param in data['parameters'] ?? []) {
@@ -425,6 +427,7 @@ ${param.description}${param.examples.isNotEmpty ? '\n' : ''}''');
   }
 
   for (var verb in path.verbs) {
+    String funcName = verb.id;
     List<String> functionArgs = [...allVerbFunctionArgs];
     List<String> optionalArgs = [...allVerbOptionalArgs];
     Map<String, String> queryArgs = {...allVerbQueryArgs};
@@ -433,7 +436,9 @@ ${param.description}${param.examples.isNotEmpty ? '\n' : ''}''');
 
     List<String> responseComments = [];
     List<String> funcComments = [];
-    bool canChunk = false;
+
+    bool canChunk = funcName == 'statusUpdatesGet';
+    bool onlyChunked = funcName == 'statusUpdatesGet';
 
     // handle params for this verb
     for (var param in verb.params) {
@@ -471,15 +476,16 @@ ${param.description}${param.examples.isNotEmpty ? '\n' : ''}''');
     }
 
     // handle items from the request body spec
+    var postArgVar = 'postBody';
     if (verb.requestBody != null) {
       var argType = getDartTypeFromSchemaType(verb.requestBody!.schema.type);
-      var argVar = 'postBody';
       var canmust = verb.requestBody!.required ? 'must' : 'can';
       var requiredoptional = verb.requestBody!.required ? 'required' : 'optional';
       var example = verb.requestBody!.schema.exampleJson;
-      functionArgs.add('$argType $argVar');
-      argNames.add(argVar);
-      argComments.add('\n[$argVar] ($requiredoptional) : This is the data that $canmust be sent with this request.');
+      functionArgs.add('$argType $postArgVar');
+      argNames.add(postArgVar);
+      argComments
+          .add('\n[$postArgVar] ($requiredoptional) : This is the data that $canmust be sent with this request.');
       if (example.isNotEmpty) argComments.add('\nExample:\n```json\n$example\n```');
       if (verb.requestBody!.examples.isNotEmpty) argComments.add('');
       for (var example in verb.requestBody!.examples) {
@@ -487,11 +493,11 @@ ${param.description}${param.examples.isNotEmpty ? '\n' : ''}''');
       }
     }
 
-    var funcName = verb.id;
     funcComments.add('''
 `$funcName` -> `${path.pathspec}`
 
 ${verb.summary}
+${verb.description}
 ''');
 
     // handle responses
@@ -536,24 +542,26 @@ content-type: `${response.contentType}`
     var funcs = <String>[];
 
     // non-chunked versions
-    if (verb.requestBody != null) {
-      // version with post
-      funcs.add('''
-static Future<$funcRetVal> $funcName($funcArgs) async {
+    if (!onlyChunked) {
+      if (verb.requestBody != null) {
+        // version with post
+        funcs.add('''
+Future<$funcRetVal> $funcName($funcArgs) async {
   String url = '$dartPathSpec';
   $queryLine
   return await call('${verb.method}', url$queryArg);
 }
 ''');
-    } else {
-      // version with no posted data
-      funcs.add('''
-static Future<$funcRetVal> $funcName($funcArgs) async {
+      } else {
+        // version with no posted data
+        funcs.add('''
+Future<$funcRetVal> $funcName($funcArgs) async {
   String url = '$dartPathSpec';
   $queryLine
   return await call('${verb.method}', url$queryArg);
 }
 ''');
+      }
     }
 
     // now, the chunked versions
@@ -561,25 +569,23 @@ static Future<$funcRetVal> $funcName($funcArgs) async {
       queryArg = queryArgs.isNotEmpty ? '...query, ' : '';
 
       if (verb.requestBody != null) {
-        // version with post
+        // statusUpdatesGet is the only endpoint that takes
+        // a `post` and returns chunked data
+        // and it does NOT require the query argument
         funcs.add('''
-/// Streaming version of [$funcName]
-static Future<Stream?> ${funcName}Stream($funcArgs) async {
+Future<Stream?> $funcName($funcArgs) async {
   String url = '$dartPathSpec';
-  $queryLine
-  var uri = Uri.http('\$host:\$port', url, {$queryArg'chunked':'true'});
-  return ChunkedJsonClient.request(uri, postData: data);
+  return callStream('get', url, data: $postArgVar);
 }
 ''');
       } else {
         // version with no posted data
         funcs.add('''
 /// Streaming version of [$funcName]
-static Future<Stream?> ${funcName}Stream($funcArgs) async {
+Future<Stream?> ${funcName}Stream($funcArgs) async {
   String url = '$dartPathSpec';
   $queryLine
-  var uri = Uri.http('\$host:\$port', url, {$queryArg'chunked':'true'});
-  return ChunkedJsonClient.request(uri);
+  return callStream('get', url, params: {$queryArg'chunked': 'true'});
 }
 ''');
       }
@@ -615,25 +621,30 @@ String codeGen(Spec apiSpec) {
   return '''
 /// AUTOGENERATED ON ${DateTime.now()}
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
-import 'chunked_request.dart';
 
-class PP {
-  static String host = 'localhost';
-  static int port = 50001;
 
-  static config(String host, int port) {
-    PP.host = host;
-    PP.port = port;
+class ProApiWrapper {
+  String host = 'localhost';
+  int port = 50001;
+
+  ProApiWrapper(this.host, this.port);
+
+  Uri _makeUri(String path, {Map<String, dynamic>? params}) {
+    return Uri.http('\$host:\$port', path, params);
   }
 
   /// [call] will use the response `content-type` to automatically
   /// determine if the response should be decoded from json or
   /// returned as [Uint8List] directly.
-  static Future call(String verb, String path, {Map<String, dynamic>? params, Object? data}) async {
-    var uri = Uri.http('\$host:\$port', path, params);
+  ///
+  /// [path] should be a *relative* path according to the api.
+  /// e.g. `/v1/status/updates`
+  Future call(String verb, String path, {Map<String, dynamic>? params, Object? data}) async {
+    var uri = _makeUri(path, params: params);
     var headers = {'content-type': 'application/json'};
     late http.Response r;
     switch (verb.toLowerCase()) {
@@ -662,6 +673,64 @@ class PP {
     } else {
       throw http.ClientException(r.body);
     }
+  }
+
+  Future<Stream?> callStream(String verb, String path, {Map<String, dynamic>? params, Object? data}) async {
+    var uri = _makeUri(path, params: params);
+
+    // setup a manual request to manage streaming
+    var verb = data == null ? 'GET' : 'POST';
+    var r = http.Request(verb, uri);
+    r.headers['content-type'] = 'application/json';
+    if (data is String) {
+      r.body = data;
+    } else {
+      r.body = json.encode(data);
+    }
+    var res = await r.send();
+
+    // if successful, create a stream of Json Objects
+    if (res.statusCode > 199 && res.statusCode < 300) {
+      var sc = StreamController<Map<String, dynamic>>();
+      var accum = '';
+      res.stream.listen((e) {
+        accum += utf8.decode(e);
+        var chunks = accum.split('\\r\\n\\r\\n');
+        // if the received data ended with \\r\\n\\r\\n, the last chunk will be empty
+        // if it didn't end with \\r\\n\\r\\n, then we want to leave it in the accumulator
+        accum = chunks.removeLast();
+        for (var chunk in chunks) {
+          try {
+            var decoded = json.decode(chunk);
+            print(decoded);
+            sc.add({...decoded});
+          } catch (e) {
+            print('JSON ERROR: \$e');
+          }
+        }
+      }).onDone(() {
+        sc.close();
+      });
+      return sc.stream;
+    } else {
+      // we had an error of some kind, but we used a streaming request
+      // so we need to wait until all the response data has arrived
+      var err = await _awaitBody(res.stream).timeout(Duration(seconds: 2), onTimeout: () => '"stream timeout"');
+      if (err != 'stream timeout' && res.headers['content-type'] == 'application/json') {
+        throw http.ClientException(json.decode(err));
+      }
+      throw http.ClientException(err);
+    }
+    // return null;
+  }
+
+  Future<String> _awaitBody(http.ByteStream s) {
+    var accum = <int>[];
+    var completer = Completer<String>();
+    s.listen((bytes) => accum.addAll(bytes)).onDone(() {
+      completer.complete(utf8.decode(accum));
+    });
+    return completer.future;
   }
 
 ${functions.join('\n').prefixLines('  ')}

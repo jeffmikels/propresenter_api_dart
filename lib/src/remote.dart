@@ -30,7 +30,7 @@ class ProRemoteClient extends ProConnectedComponent {
   ProLegacyClient parent;
 
   ProSettings settings;
-  String get ip => settings.ip;
+  String get ip => settings.host;
   int get port => settings.port;
   ProVersion get version => settings.version;
   String? get password => settings.remotePass;

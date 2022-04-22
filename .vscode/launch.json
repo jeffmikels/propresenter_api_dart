@@ -5,6 +5,12 @@
 	"version": "0.2.0",
 	"configurations": [
 		{
+			"name": "Example",
+			"type": "dart",
+			"request": "launch",
+			"program": "example/propresenter_api_example.dart"
+		},
+		{
 			"name": "CodeGen",
 			"type": "dart",
 			"request": "launch",
