@@ -37,14 +37,14 @@ void main() async {
   //   s.listen((e) => print(encoder.convert(e)));
   // }
 
-  var pro = ProApiClient(ProSettings(version: ProVersion.seven9, host: 'localhost', port: 60157));
-  pro.on('all', (e) => debug(e));
+  var api = ProApiClient(ProSettings(version: ProVersion.seven9, host: 'localhost', port: 60157));
+  api.on('all', (e) => debug(e));
   // pro.subscribeAll(withoutSysTime: true, withoutVideoCountdown: true);
-  pro.subscribeMulti([
+  api.subscribeMulti([
     ProApiSubbable.slideStatus,
     ProApiSubbable.currentSlideIndex,
   ]);
 
-  var s = await pro.api.presentationGetActiveStream();
+  var s = await api.presentationGetActiveStream();
   s?.listen((e) => debug(e));
 }

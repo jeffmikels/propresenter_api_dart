@@ -62,7 +62,7 @@ class ProSettings {
 /// - playlist
 /// - library
 /// - audio
-class ProState with EventEmitter {
+class ProState with ProEventEmitter {
   bool audioIsPlaying = false;
 
   List<ProClock> clocks = [];
@@ -640,7 +640,7 @@ class ProLibrary {
 enum ProClockType { countdown, countto, elapsed }
 
 /// a [ProClock] is the version of a clock reported by the Remote Control API
-class ProClock with EventEmitter {
+class ProClock with ProEventEmitter {
   ProLegacyClient? parent;
 
   late int id; // just refers to the order in which ProPresenter reports the clocks

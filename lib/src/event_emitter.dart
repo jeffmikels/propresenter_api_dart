@@ -1,36 +1,41 @@
 import 'dart:async';
 
-/// [EventEmitter]s provide two ways for an object to listen to changes.
+/// [ProEventEmitter]s provide two ways for an object to listen to changes.
 /// Either by providing a callback, or by listening to an event stream.
 ///
 /// Listening to the [eventStream] allows the use of [StreamBuilder] widgets
 /// in Flutter
-class EventEmitter<T extends Object> {
-  Map<String, List<void Function(Event<T> event)>> callbacks = {};
-  StreamController<Event<T>> eventStream = StreamController.broadcast();
+class ProEventEmitter<T extends Object> {
+  bool _disposed = false;
+  Map<String, List<void Function(ProEvent<T> event)>> callbacks = {};
+  StreamController<ProEvent<T>> eventStream = StreamController.broadcast();
 
-  /// listen to an event on this [EventEmitter] as a stream. A True value
+  /// listen to an event on this [ProEventEmitter] as a stream. An [ProEvent]
   /// will be emitted whenever the event by this name is emitted.
   ///
   /// Use the special `event` name of 'all' to subscribe to all events.
-  Stream<Event> listen(String event) {
+  Stream<ProEvent> stream(String event) {
     return eventStream.stream.where((e) => e.name == event); //.map<bool>((event) => true);
   }
 
   /// set a callback for events of this type.
   ///
+  /// REMEMBER TO DISPOSE INSTANCES OF THIS CLASS OR CANCEL THESE CALLBACKS
+  /// i.e. call [EventEmitter.dispose]
+  ///
   /// Use the special `event` name of 'all' to fire this callback on all events.
-  EventObserver on(String event, void Function(Event<T> event) callback) {
+  ProEventObserver on(String event, void Function(ProEvent<T> event) callback) {
     if (!callbacks.containsKey(event)) callbacks[event] = [];
     callbacks[event]!.add(callback);
-    return EventObserver(() => callbacks[event]?.remove(callback));
+    return ProEventObserver(() => callbacks[event]?.remove(callback));
   }
 
   /// emit will always emit twice... first, by the name of the event
   /// submitted, and secondly, by the name of the special event 'all'
   void emit(String event, [T? data]) {
+    if (_disposed) return;
     for (var name in [event, 'all']) {
-      var e = Event(name, data);
+      var e = ProEvent(name, data);
       eventStream.add(e);
       if (callbacks.containsKey(name)) {
         for (var callback in callbacks[name]!) {
@@ -39,12 +44,21 @@ class EventEmitter<T extends Object> {
       }
     }
   }
+
+  void clear() {
+    callbacks.clear();
+  }
+
+  void dispose() {
+    _disposed = true;
+    clear();
+  }
 }
 
-class Event<T extends Object> {
+class ProEvent<T extends Object> {
   String name = '';
   T? data;
-  Event(this.name, [this.data]);
+  ProEvent(this.name, [this.data]);
 
   toJson() => {
         'name': name,
@@ -52,10 +66,10 @@ class Event<T extends Object> {
       };
 }
 
-/// Allow a listener to cancel a callback registered with an [EventEmitter]
-class EventObserver {
-  void Function() canceler;
-  EventObserver(this.canceler);
+/// Allow a listener to cancel a callback registered with an [ProEventEmitter]
+class ProEventObserver {
+  void Function() _canceler;
+  ProEventObserver(this._canceler);
 
-  void cancel() => canceler();
+  void cancel() => _canceler();
 }

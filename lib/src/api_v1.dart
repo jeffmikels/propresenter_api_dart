@@ -1,11 +1,9 @@
 import 'dart:async';
-import 'dart:convert';
 
-import 'helpers.dart';
-import 'event_emitter.dart';
+// import '../propresenter_api.dart';
 import 'propresenter_api_base.dart';
-
 import 'api_v1_generated.dart';
+import 'event_emitter.dart';
 
 /// this class stores the string constants representing
 /// ProPresenter endpoints that can be subscribed to
@@ -100,18 +98,22 @@ abstract class ProApiSubbable {
 /// this class allows easy subscriptions, will maintain an internal `state` object to track the
 /// current state of the ProPresenter instance, and will reduce complexity when calling endpoints
 /// that accept large blocks of data.
-class ProApiClient with EventEmitter {
-  final ProApiGeneratedWrapper api;
-  ProSettings settings;
+class ProApiClient with ProEventEmitter, ProApiGeneratedWrapper {
+  // final ProApiGeneratedWrapper api;
   ProState state = ProState();
+  ProSettings settings;
+
+  @override
+  String get host => settings.host;
+
+  @override
+  int get port => settings.port;
 
   Set<String> statusSubscriptions = {};
   Map<String, StreamSubscription> updateListeners = {};
 
   /// Creates new [ProApiClient] instance.
-  ProApiClient(this.settings)
-      : api = ProApiGeneratedWrapper(settings.host, settings.port),
-        assert(settings.version.index >= ProVersion.seven9.index);
+  ProApiClient(this.settings) : assert(settings.version.index >= ProVersion.seven9.index);
 
   /// will subscribe to chunked updates using the /status endpoint.
   ///
@@ -124,12 +126,13 @@ class ProApiClient with EventEmitter {
   ///
   /// Note also: Other endpoints are supported but they require id values. See the
   /// static class methods on [ProApiSubbable] for endpoint generators.
-  Future<bool> subscribeMulti(List<String> subs) async {
+  Future<ProEventObserver?> subscribeMulti(List<String> subs) async {
     emit('subscribing', subs);
 
-    var s = await api.statusUpdatesGet(subs);
-    if (s == null) return false;
+    var s = await statusUpdatesGet(subs);
+    if (s == null) return null;
 
+    // we listen to the events and `emit` them as they come in
     var streamListener = s.listen((obj) {
       // emit the raw data identified by the endpoint/url
       var url = obj['url'] as String;
@@ -139,20 +142,24 @@ class ProApiClient with EventEmitter {
       state.handleData(obj);
     });
 
+    // this is called when the http client is finished sending data
     streamListener.onDone(() {
       for (var endpoint in subs) {
         emit('unsubscribed', endpoint);
       }
+      streamListener.cancel();
       updateListeners.removeWhere((key, value) => value == streamListener);
     });
 
     for (var endpoint in subs) {
-      // cancel all previous streamListeners on this endpoint
+      // is this needed?
+      // cancel all previous streamListeners on these endpoints
       await updateListeners[endpoint]?.cancel();
       updateListeners[endpoint] = streamListener;
       emit('subscribed', endpoint);
     }
-    return true;
+
+    return ProEventObserver(() => streamListener.cancel());
   }
 
   /// will automatically call [subscribeMulti] with all available endpoints
@@ -162,10 +169,15 @@ class ProApiClient with EventEmitter {
   /// - `media/playlist/{id}/updates`
   /// - `transport/{layer}/time`
   /// - `transport/{layer}/current`
-  Future<bool> subscribeAll({withoutSysTime = false, withoutVideoCountdown = false}) async {
+  Future<ProEventObserver?> subscribeAll({withoutSysTime = false, withoutVideoCountdown = false}) async {
     var subs = [...ProApiSubbable.all];
     if (withoutSysTime) subs.remove(ProApiSubbable.systemTime);
     if (withoutVideoCountdown) subs.remove(ProApiSubbable.videoCountdown);
     return subscribeMulti(subs);
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
   }
 }

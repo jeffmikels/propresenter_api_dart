@@ -16,7 +16,7 @@ enum ProConnectionStatus { disconnected, connecting, connected, failed }
 /// connected, connecting, disconnected, failed, update
 ///
 /// Child classes may emit custom events with the [notify] function.
-class ProConnectedComponent with EventEmitter {
+class ProConnectedComponent with ProEventEmitter {
   bool destroyed = false;
   bool get connected => status == ProConnectionStatus.connected;
   bool get connecting => status == ProConnectionStatus.connecting;

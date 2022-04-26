@@ -1,6 +1,6 @@
 name: propresenter_api
 description: An implementation of the ProPresenter API (legacy and current) for Dart.
-version: 0.2.0
+version: 0.3.0
 homepage: https://www.jeffmikels.com
 
 environment:

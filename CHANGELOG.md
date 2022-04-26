@@ -1,3 +1,7 @@
+## 0.3.0
+
+-   reimplemented the generated code as a mixin.
+
 ## 0.2.0
 
 -   Improved type responses for 7.9 api wrapper calls.
